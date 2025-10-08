@@ -1,30 +1,20 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import math
 
-st.set_page_config(page_title="Üretim Verimlilik Dashboard", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Üretim Verimlilik Dashboard v4", page_icon="⚙️", layout="wide")
 
 st.markdown("""
 <style>
     .main {
         background-color: #f8f9fa;
     }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 12px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    }
-    .stDataFrame {
-        background-color: white;
-        border-radius: 10px;
-        padding: 10px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚙️ Üretim Verimlilik Dashboard")
-st.caption("Haftalık plan, kapasite, FTE ve personel açığı analizi")
+st.title("⚙️ Üretim Verimlilik Dashboard v4")
+st.caption("Mesai, tahmini üretim süresi ve kötü senaryo analizi dahil")
 
 # ------------------------------
 # Başlangıç state
@@ -60,8 +50,7 @@ with tab1:
             st.success(f"{makine_adi} başarıyla eklendi ✅")
 
     if st.session_state.makineler:
-        df = pd.DataFrame(st.session_state.makineler)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(pd.DataFrame(st.session_state.makineler), use_container_width=True)
     else:
         st.info("Henüz makine bilgisi girilmedi.")
 
@@ -90,36 +79,61 @@ with tab2:
         st.info("Henüz manuel iş eklenmedi.")
 
 # ------------------------------
-# GRAFİKSEL ANALİZ
+# ANALİZ VE GRAFİKLER
 # ------------------------------
 with tab3:
     if not st.session_state.makineler:
         st.warning("Makine verisi olmadan analiz yapılamaz.")
     else:
         df = pd.DataFrame(st.session_state.makineler)
-        df["Gerekli Üretim Saati"] = df["Haftalık Üretim Planı (ton)"] / df["Saatlik Kapasite (ton/saat)"]
-        df["Personel Açığı"] = (df["Vardiya Personel"] * 3) - df["Mevcut Personel"]
-        df["Durum"] = df["Personel Açığı"].apply(lambda x: "⚠️ Açık Var" if x > 0 else "✅ Yeterli")
+        vardiya_saat = 8
+        gun_sayisi = 5
+        fte_hs = 42.5
 
-        toplam_fte = ((df["Vardiya Personel"] * 3 * 8) / 42.5).sum()
+        # Toplam üretim saati
+        df["Toplam Üretim Saati"] = df["Haftalık Üretim Planı (ton)"] / df["Saatlik Kapasite (ton/saat)"]
+
+        # Mevcut kapasite
+        df["Mevcut Kapasite Saati"] = df["Mevcut Personel"] * vardiya_saat * 3 * gun_sayisi
+
+        # Mesai ihtiyacı
+        df["Mesai Saat"] = df["Toplam Üretim Saati"] - df["Mevcut Kapasite Saati"]
+        df["Mesai Saat"] = df["Mesai Saat"].apply(lambda x: x if x>0 else 0)
+
+        # Tahmini üretim süresi (gün)
+        df["Tahmini Gün"] = df["Toplam Üretim Saati"] / (df["Mevcut Personel"] * vardiya_saat * 3)
+        df["Tahmini Gün"] = df["Tahmini Gün"].apply(lambda x: math.ceil(x*10)/10) # 0.1 gün hassasiyet
+
+        # Kötü senaryo (personel %50 düşerse)
+        df["Kötü Senaryo Gün"] = df["Toplam Üretim Saati"] / (df["Mevcut Personel"]*0.5 * vardiya_saat * 3)
+        df["Kötü Senaryo Gün"] = df["Kötü Senaryo Gün"].apply(lambda x: math.ceil(x*10)/10)
+
+        # Personel açığı
+        df["Personel Açığı"] = (df["Vardiya Personel"]*3) - df["Mevcut Personel"]
+        df["Durum"] = df["Mesai Saat"].apply(lambda x: "⚠️ Mesai Gerekebilir" if x>0 else "✅ Yeterli Personel")
+
+        # FTE hesapları
+        df["Haftalık FTE"] = ((df["Vardiya Personel"] * 3 * vardiya_saat * gun_sayisi)/fte_hs)
+
+        # Dashboard metrikleri
+        toplam_fte = df["Haftalık FTE"].sum()
+        toplam_mesai = df["Mesai Saat"].sum()
         toplam_acik = df["Personel Açığı"].sum()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Toplam Haftalık FTE", f"{toplam_fte:.1f}")
-        with col2:
-            st.metric("Toplam Personel Açığı", f"{toplam_acik}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Toplam Haftalık FTE", f"{toplam_fte:.1f}")
+        col2.metric("Toplam Mesai Saati", f"{toplam_mesai:.1f}")
+        col3.metric("Toplam Personel Açığı", f"{toplam_acik}")
 
         st.divider()
-        st.markdown("### 📊 Makine Bazlı Görselleştirme")
+        st.markdown("### 📊 Makine Bazlı Analiz ve Görselleştirme")
+        st.dataframe(df[["Makine","Personel Açığı","Mesai Saat","Tahmini Gün","Kötü Senaryo Gün","Durum","Haftalık FTE"]], use_container_width=True)
 
-        fig1 = px.bar(df, x="Makine", y=["Haftalık Üretim Planı (ton)", "Saatlik Kapasite (ton/saat)"],
-                      barmode="group", title="Üretim Planı vs Kapasite", color_discrete_sequence=px.colors.qualitative.Pastel)
+        # Grafikler
+        fig1 = px.bar(df, x="Makine", y=["Haftalık Üretim Planı (ton)", "Toplam Üretim Saati"],
+                      barmode="group", title="Plan vs Toplam Üretim", color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig1, use_container_width=True)
 
-        fig2 = px.pie(df, values="Mevcut Personel", names="Makine", title="Personel Dağılımı")
+        fig2 = px.bar(df, x="Makine", y="Mesai Saat", color="Durum",
+                      title="Mesai İhtiyacı", color_discrete_map={"⚠️ Mesai Gerekebilir": "red", "✅ Yeterli Personel": "green"})
         st.plotly_chart(fig2, use_container_width=True)
-
-        fig3 = px.bar(df, x="Makine", y="Personel Açığı", color="Durum",
-                      title="Personel Açığı Durumu", color_discrete_map={"⚠️ Açık Var": "red", "✅ Yeterli": "green"})
-        st.plotly_chart(fig3, use_container_width=True)
