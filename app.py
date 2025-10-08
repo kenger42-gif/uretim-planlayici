@@ -130,9 +130,12 @@ with tab3:
 def ai_tavsiyeler(df):
     """
     AI entegrasyonu için hazır format.
-    Şimdilik dummy metin döndürüyor.
+    Eğer 'Mesai Saat' yoksa 0 kabul ediyor.
     """
     tavsiyeler = []
+    if "Mesai Saat" not in df.columns:
+        df["Mesai Saat"] = 0  # varsayılan olarak 0 saat mesai
+
     for _, row in df.iterrows():
         if row["Mesai Saat"] > 0:
             tavsiyeler.append(f"{row['Makine']}: Mesai gerekebilir ({row['Mesai Saat']:.1f} saat)")
@@ -140,10 +143,3 @@ def ai_tavsiyeler(df):
             tavsiyeler.append(f"{row['Makine']}: Yeterli personel mevcut.")
     return "\n".join(tavsiyeler)
 
-with tab4:
-    st.subheader("🤖 AI Tavsiyeleri (Dummy)")
-    if not st.session_state.makineler:
-        st.info("Makine verisi olmadan tavsiye oluşturulamaz.")
-    else:
-        df_ai = pd.DataFrame(st.session_state.makineler)
-        st.text(ai_tavsiyeler(df_ai))
