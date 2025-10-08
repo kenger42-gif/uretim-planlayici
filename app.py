@@ -3,8 +3,8 @@ import pandas as pd
 
 st.set_page_config(page_title="Üretim Personel Planlayıcı", page_icon="🧮", layout="wide")
 
-st.title("🧮 Üretim Personel Planlayıcı v2")
-st.caption("Otomatik vardiya, FTE ve mesai hesaplama sistemi")
+st.title("🧮 Üretim Personel Planlayıcı v3")
+st.caption("Haftalık üretim planına göre FTE ve personel açığı analizi")
 
 # ------------------------------
 # Başlangıç state
@@ -26,14 +26,20 @@ with tab1:
     st.subheader("Makine Bilgisi Ekle")
     with st.form("makine_formu"):
         makine_adi = st.text_input("Makine Adı")
+        haftalik_plan = st.number_input("Haftalık Üretim Planı (ton)", min_value=0.0)
+        saatlik_kapasite = st.number_input("Saatlik Kapasite (ton/saat)", min_value=0.0)
         vardiya_personel = st.number_input("Vardiya Başı Gerekli Personel", min_value=0)
+        mevcut_personel = st.number_input("Bölümde Mevcut Personel (adet)", min_value=0)
         saniyede_uretim = st.number_input("Saniyede Üretilen Ürün (kg/sn)", min_value=0.0)
         ekle = st.form_submit_button("Makineyi Ekle")
 
         if ekle and makine_adi:
             st.session_state.makineler.append({
                 "Makine": makine_adi,
+                "Haftalık Üretim Planı (ton)": haftalik_plan,
+                "Saatlik Kapasite (ton/saat)": saatlik_kapasite,
                 "Vardiya Personel": vardiya_personel,
+                "Mevcut Personel": mevcut_personel,
                 "Saniyede Üretim (kg/sn)": saniyede_uretim
             })
             st.success(f"{makine_adi} başarıyla eklendi!")
@@ -78,25 +84,38 @@ with tab3:
     if st.session_state.makineler:
         df_m = pd.DataFrame(st.session_state.makineler)
 
-        # 3 vardiya toplamı
+        # İhtiyaç duyulan vardiya sayısı
+        df_m["Toplam Gerekli Üretim Saati"] = df_m["Haftalık Üretim Planı (ton)"] / df_m["Saatlik Kapasite (ton/saat)"]
+        df_m["Günlük Üretim Saati"] = df_m["Toplam Gerekli Üretim Saati"] / 5
         df_m["Toplam Üretim Personeli (3 Vardiya)"] = df_m["Vardiya Personel"] * 3
 
-        # Günlük / haftalık FTE hesaplama
-        # 1 FTE = 42.5 saat/hafta, 8 saat/vardiya, 5 gün/hafta
+        # FTE hesapları
         df_m["Günlük FTE"] = (df_m["Vardiya Personel"] * 3 * 8) / 42.5
         df_m["Haftalık FTE"] = df_m["Günlük FTE"] * 5
 
-        st.markdown("### 🏭 Makine Bazlı FTE Hesapları")
+        # Açık / fazla personel
+        df_m["Personel Açığı (Kişi)"] = df_m["Toplam Üretim Personeli (3 Vardiya)"] - df_m["Mevcut Personel"]
+
+        # Mesai ihtiyacı
+        def mesai_durumu(row):
+            if row["Personel Açığı (Kişi)"] > 0:
+                return "⚠️ Mesai Gerekebilir"
+            else:
+                return "✅ Yeterli Personel"
+        df_m["Mesai Durumu"] = df_m.apply(mesai_durumu, axis=1)
+
+        st.markdown("### 🏭 Makine Bazlı Üretim & FTE Analizi")
         st.dataframe(df_m, use_container_width=True)
 
-        toplam_personel = df_m["Toplam Üretim Personeli (3 Vardiya)"].sum()
         toplam_fte = df_m["Haftalık FTE"].sum()
+        toplam_acik = df_m["Personel Açığı (Kişi)"].sum()
 
-        st.metric("Toplam Üretim Personeli", f"{toplam_personel}")
         st.metric("Toplam Haftalık FTE", f"{toplam_fte:.2f}")
+        st.metric("Toplam Personel Açığı", f"{toplam_acik}")
     else:
         st.warning("Makine bilgisi olmadan hesaplama yapılamaz.")
 
+    # Manuel işler
     if st.session_state.manuel_isler:
         df_is = pd.DataFrame(st.session_state.manuel_isler)
         df_is["Haftalık Süre (saat)"] = df_is["Günlük Süre (saat)"] * 5
@@ -104,26 +123,3 @@ with tab3:
 
         st.markdown("### 🔧 Manuel İşlerin FTE Katkısı")
         st.dataframe(df_is, use_container_width=True)
-
-        toplam_m_is = df_is["Kişi Sayısı"].sum()
-        toplam_m_fte = df_is["Haftalık FTE"].sum()
-
-        st.metric("Manuel İş Personeli", f"{toplam_m_is}")
-        st.metric("Manuel İş FTE", f"{toplam_m_fte:.2f}")
-    else:
-        st.info("Henüz manuel iş girilmedi.")
-
-    # ------------------------------
-    # MESAI KONTROLÜ
-    # ------------------------------
-    st.divider()
-    st.markdown("### ⏱️ Mesai Gereksinimi Kontrolü")
-
-    if st.session_state.makineler:
-        ortalama_vardiya_personel = df_m["Vardiya Personel"].mean()
-        if ortalama_vardiya_personel > 10:
-            st.warning("⚠️ Ortalama vardiya personeli 10’un üzerinde. Muhtemelen mesaiye ihtiyaç var (3.5 saat).")
-        else:
-            st.success("✅ Mevcut personel yeterli, mesaiye gerek yok.")
-    else:
-        st.info("Makine bilgisi girmeden mesai kontrolü yapılamaz.")
