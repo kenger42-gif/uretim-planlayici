@@ -3,18 +3,10 @@ import pandas as pd
 import plotly.express as px
 import math
 
-st.set_page_config(page_title="Üretim Verimlilik Dashboard v4", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Üretim Verimlilik Dashboard v5", page_icon="⚙️", layout="wide")
 
-st.markdown("""
-<style>
-    .main {
-        background-color: #f8f9fa;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.title("⚙️ Üretim Verimlilik Dashboard v4")
-st.caption("Mesai, tahmini üretim süresi ve kötü senaryo analizi dahil")
+st.title("⚙️ Üretim Verimlilik Dashboard v5")
+st.caption("AI hazır formatlı, çalışır sürüm")
 
 # ------------------------------
 # Başlangıç state
@@ -24,7 +16,16 @@ if "makineler" not in st.session_state:
 if "manuel_isler" not in st.session_state:
     st.session_state.manuel_isler = []
 
-tab1, tab2, tab3 = st.tabs(["🧮 Makine Girişleri", "🔧 Manuel İşler", "📊 Analiz ve Grafikler"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🧮 Makine Girişleri",
+    "🔧 Manuel İşler",
+    "📊 Analiz ve Grafikler",
+    "🤖 AI Tavsiyeleri"
+])
+
+vardiya_saat = 8
+gun_sayisi = 5
+fte_hs = 42.5
 
 # ------------------------------
 # MAKİNE GİRİŞLERİ
@@ -86,36 +87,21 @@ with tab3:
         st.warning("Makine verisi olmadan analiz yapılamaz.")
     else:
         df = pd.DataFrame(st.session_state.makineler)
-        vardiya_saat = 8
-        gun_sayisi = 5
-        fte_hs = 42.5
 
-        # Toplam üretim saati
+        # Hesaplamalar
         df["Toplam Üretim Saati"] = df["Haftalık Üretim Planı (ton)"] / df["Saatlik Kapasite (ton/saat)"]
-
-        # Mevcut kapasite
         df["Mevcut Kapasite Saati"] = df["Mevcut Personel"] * vardiya_saat * 3 * gun_sayisi
-
-        # Mesai ihtiyacı
         df["Mesai Saat"] = df["Toplam Üretim Saati"] - df["Mevcut Kapasite Saati"]
         df["Mesai Saat"] = df["Mesai Saat"].apply(lambda x: x if x>0 else 0)
-
-        # Tahmini üretim süresi (gün)
         df["Tahmini Gün"] = df["Toplam Üretim Saati"] / (df["Mevcut Personel"] * vardiya_saat * 3)
-        df["Tahmini Gün"] = df["Tahmini Gün"].apply(lambda x: math.ceil(x*10)/10) # 0.1 gün hassasiyet
-
-        # Kötü senaryo (personel %50 düşerse)
+        df["Tahmini Gün"] = df["Tahmini Gün"].apply(lambda x: math.ceil(x*10)/10)
         df["Kötü Senaryo Gün"] = df["Toplam Üretim Saati"] / (df["Mevcut Personel"]*0.5 * vardiya_saat * 3)
         df["Kötü Senaryo Gün"] = df["Kötü Senaryo Gün"].apply(lambda x: math.ceil(x*10)/10)
-
-        # Personel açığı
         df["Personel Açığı"] = (df["Vardiya Personel"]*3) - df["Mevcut Personel"]
-        df["Durum"] = df["Mesai Saat"].apply(lambda x: "⚠️ Mesai Gerekebilir" if x>0 else "✅ Yeterli Personel")
-
-        # FTE hesapları
+        df["Durum"] = df["Mesai Saat"].apply(lambda x: "⚠️ Mesai Gerekebilir" if x>0 else "✅ Yeterli")
         df["Haftalık FTE"] = ((df["Vardiya Personel"] * 3 * vardiya_saat * gun_sayisi)/fte_hs)
 
-        # Dashboard metrikleri
+        # Metrikler
         toplam_fte = df["Haftalık FTE"].sum()
         toplam_mesai = df["Mesai Saat"].sum()
         toplam_acik = df["Personel Açığı"].sum()
@@ -126,7 +112,7 @@ with tab3:
         col3.metric("Toplam Personel Açığı", f"{toplam_acik}")
 
         st.divider()
-        st.markdown("### 📊 Makine Bazlı Analiz ve Görselleştirme")
+        st.markdown("### 📊 Makine Bazlı Analiz")
         st.dataframe(df[["Makine","Personel Açığı","Mesai Saat","Tahmini Gün","Kötü Senaryo Gün","Durum","Haftalık FTE"]], use_container_width=True)
 
         # Grafikler
@@ -135,5 +121,29 @@ with tab3:
         st.plotly_chart(fig1, use_container_width=True)
 
         fig2 = px.bar(df, x="Makine", y="Mesai Saat", color="Durum",
-                      title="Mesai İhtiyacı", color_discrete_map={"⚠️ Mesai Gerekebilir": "red", "✅ Yeterli Personel": "green"})
+                      title="Mesai İhtiyacı", color_discrete_map={"⚠️ Mesai Gerekebilir": "red", "✅ Yeterli": "green"})
         st.plotly_chart(fig2, use_container_width=True)
+
+# ------------------------------
+# AI TAVSİYE (dummy)
+# ------------------------------
+def ai_tavsiyeler(df):
+    """
+    AI entegrasyonu için hazır format.
+    Şimdilik dummy metin döndürüyor.
+    """
+    tavsiyeler = []
+    for _, row in df.iterrows():
+        if row["Mesai Saat"] > 0:
+            tavsiyeler.append(f"{row['Makine']}: Mesai gerekebilir ({row['Mesai Saat']:.1f} saat)")
+        else:
+            tavsiyeler.append(f"{row['Makine']}: Yeterli personel mevcut.")
+    return "\n".join(tavsiyeler)
+
+with tab4:
+    st.subheader("🤖 AI Tavsiyeleri (Dummy)")
+    if not st.session_state.makineler:
+        st.info("Makine verisi olmadan tavsiye oluşturulamaz.")
+    else:
+        df_ai = pd.DataFrame(st.session_state.makineler)
+        st.text(ai_tavsiyeler(df_ai))
