@@ -82,30 +82,28 @@ if st.button("📅 Planı Oluştur"):
         st.success("✅ Üretim planı başarıyla oluşturuldu!")
         st.dataframe(sonuc_df, use_container_width=True)
 
-        # ---- MATRİKS TABLO OLUŞTURMA ----
+        # ---- VARDİYA TAKVİMİ (BÖLÜM BAZLI) ----
         st.divider()
-        st.subheader("📆 Vardiya Takvimi")
+        st.subheader("📆 Bölüm Bazlı Vardiya Takvimi")
 
         tarihler = pd.date_range(datetime.today(), periods=7).strftime("%Y-%m-%d")
-        personel_listesi = []
-        for m in makineler:
-            for i in range(m["Toplam Personel"]):
-                personel_listesi.append(f"{m['Makine']}-P{i+1}")
-
         vardiyalar = ["V1", "V2", "V3"]
-        mat = pd.DataFrame(index=personel_listesi, columns=tarihler)
 
-        # Dağıtım
         for makine in makineler:
-            personele_ait = [p for p in personel_listesi if p.startswith(makine["Makine"])]
-            for t in tarihler:
-                for v in vardiyalar:
-                    for i in range(makine["Vardiya Personel"]):
-                        if len(personele_ait) > 0:
-                            kisi = personele_ait.pop(0)
-                            mat.at[kisi, t] = v
+            st.markdown(f"### 🧩 {makine['Makine']}")
+            personel_sayisi = makine["Toplam Personel"]
+            vardiya_kisi = makine["Vardiya Personel"]
 
-        st.dataframe(mat.fillna("-"), use_container_width=True)
+            # Personel isimleri boş bırakılmış matris
+            mat = pd.DataFrame(index=[f"Personel {i+1}" for i in range(personel_sayisi)], columns=tarihler)
+
+            for t in tarihler:
+                for i in range(personel_sayisi):
+                    vardiya_index = (i // vardiya_kisi) % 3
+                    mat.at[f"Personel {i+1}", t] = vardiyalar[vardiya_index]
+
+            # Burada isimleri sen sonradan manuel değiştirebilirsin
+            st.dataframe(mat, use_container_width=True)
 
     except Exception as e:
         st.error(f"Hata oluştu: {e}")
