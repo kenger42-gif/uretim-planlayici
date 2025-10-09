@@ -3,55 +3,78 @@ import pandas as pd
 import math
 
 st.set_page_config(page_title="Vardiya Planlayıcı", layout="wide")
-
 st.title("🏭 Üretim ve Vardiya Planlama Sistemi")
+
+# --- Session State tanımları ---
+if "machines" not in st.session_state:
+    st.session_state["machines"] = pd.DataFrame(columns=["Makine", "Kapasite (kg/saat)", "Vardiya Başına Kişi", "Toplam Personel"])
+
+if "plan" not in st.session_state:
+    st.session_state["plan"] = pd.DataFrame(columns=["Ürün", "Miktar (kg)", "Makine"])
 
 st.write("""
 Bu uygulama, haftalık üretim planını ve makine bazlı personel gereksinimlerini dikkate alarak
 en uygun vardiya planını oluşturur.
 """)
 
+# --- 1. MAKİNE BİLGİLERİ ---
 st.header("1️⃣ Makine Bilgileri Girişi")
 
 uploaded_machines = st.file_uploader("Makine bilgilerini içeren Excel dosyasını yükleyin (isteğe bağlı)", type=["xlsx"])
 if uploaded_machines:
-    df_machines = pd.read_excel(uploaded_machines)
+    st.session_state["machines"] = pd.read_excel(uploaded_machines)
 else:
-    st.write("Elle giriş yapabilirsiniz:")
-    df_machines = pd.DataFrame(columns=["Makine", "Kapasite (kg/saat)", "Vardiya Başına Kişi", "Toplam Personel"])
     with st.form("makine_form"):
-        makine_adi = st.text_input("Makine Adı")
-        kapasite = st.number_input("Kapasite (kg/saat)", min_value=50, max_value=5000, step=50)
-        kisi_vardiya = st.number_input("Vardiya Başına Gerekli Kişi Sayısı", min_value=1, max_value=10)
-        toplam_personel = st.number_input("Bölümde Toplam Personel", min_value=1, max_value=50)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            makine_adi = st.text_input("Makine Adı")
+        with col2:
+            kapasite = st.number_input("Kapasite (kg/saat)", min_value=50, max_value=5000, step=50)
+        with col3:
+            kisi_vardiya = st.number_input("Vardiya Başına Gerekli Kişi", min_value=1, max_value=10)
+        with col4:
+            toplam_personel = st.number_input("Toplam Personel", min_value=1, max_value=50)
         ekle = st.form_submit_button("Makineyi Ekle")
+
         if ekle and makine_adi:
-            df_machines.loc[len(df_machines)] = [makine_adi, kapasite, kisi_vardiya, toplam_personel]
+            yeni = pd.DataFrame([[makine_adi, kapasite, kisi_vardiya, toplam_personel]],
+                                 columns=["Makine", "Kapasite (kg/saat)", "Vardiya Başına Kişi", "Toplam Personel"])
+            st.session_state["machines"] = pd.concat([st.session_state["machines"], yeni], ignore_index=True)
 
-st.dataframe(df_machines)
+st.dataframe(st.session_state["machines"])
 
+# --- 2. ÜRETİM PLANI ---
 st.header("2️⃣ Üretim Planı Girişi")
 
 uploaded_plan = st.file_uploader("Üretim planı Excel yükle (isteğe bağlı)", type=["xlsx"])
 if uploaded_plan:
-    df_plan = pd.read_excel(uploaded_plan)
+    st.session_state["plan"] = pd.read_excel(uploaded_plan)
 else:
-    df_plan = pd.DataFrame(columns=["Ürün", "Miktar (kg)", "Makine"])
     with st.form("uretim_form"):
-        urun = st.text_input("Ürün Adı")
-        miktar = st.number_input("Miktar (kg)", min_value=100, max_value=100000, step=100)
-        makine_sec = st.selectbox("Makine Seç", df_machines["Makine"] if not df_machines.empty else [])
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            urun = st.text_input("Ürün Adı")
+        with col2:
+            miktar = st.number_input("Miktar (kg)", min_value=100, max_value=100000, step=100)
+        with col3:
+            makine_sec = st.selectbox("Makine Seç", st.session_state["machines"]["Makine"] if not st.session_state["machines"].empty else [])
         ekle_plan = st.form_submit_button("Üretim Planına Ekle")
-        if ekle_plan and urun:
-            df_plan.loc[len(df_plan)] = [urun, miktar, makine_sec]
 
-st.dataframe(df_plan)
+        if ekle_plan and urun and makine_sec:
+            yeni = pd.DataFrame([[urun, miktar, makine_sec]], columns=["Ürün", "Miktar (kg)", "Makine"])
+            st.session_state["plan"] = pd.concat([st.session_state["plan"], yeni], ignore_index=True)
 
+st.dataframe(st.session_state["plan"])
+
+# --- 3. PLAN HESAPLAMA ---
 st.header("3️⃣ Plan Hesaplama")
 
 if st.button("Planı Oluştur"):
+    df_machines = st.session_state["machines"]
+    df_plan = st.session_state["plan"]
+
     if df_machines.empty or df_plan.empty:
-        st.error("Lütfen hem makine hem üretim planı verilerini giriniz.")
+        st.error("⚠️ Lütfen hem makine hem üretim planı verilerini giriniz.")
     else:
         results = []
         for _, row in df_plan.iterrows():
@@ -85,4 +108,4 @@ if st.button("Planı Oluştur"):
             st.info("Mevcut vardiyalar üretim için yeterli görünüyor.")
 
 st.markdown("---")
-st.caption("💡 Geliştirilebilir: görsel makine yerleşim planı, vardiya bazlı takvim, otomatik AI öneri modülü")
+st.caption("💡 Geliştirilebilir: makine yerleşim planı, vardiya takvimi, AI öneri sistemi")
