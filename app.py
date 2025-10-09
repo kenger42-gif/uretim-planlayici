@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import math
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Vardiya Planlayıcı", layout="wide")
 st.title("🏭 Üretim ve Vardiya Planlama Sistemi")
@@ -11,11 +12,6 @@ if "machines" not in st.session_state:
 
 if "plan" not in st.session_state:
     st.session_state["plan"] = pd.DataFrame(columns=["Ürün", "Miktar (kg)", "Makine"])
-
-st.write("""
-Bu uygulama, haftalık üretim planını ve makine bazlı personel gereksinimlerini dikkate alarak
-en uygun vardiya planını oluşturur.
-""")
 
 # --- 1. MAKİNE BİLGİLERİ ---
 st.header("1️⃣ Makine Bilgileri Girişi")
@@ -77,6 +73,9 @@ if st.button("Planı Oluştur"):
         st.error("⚠️ Lütfen hem makine hem üretim planı verilerini giriniz.")
     else:
         results = []
+        vardiya_takvimi = []
+        start_date = datetime.today()
+
         for _, row in df_plan.iterrows():
             makine = df_machines[df_machines["Makine"] == row["Makine"]].iloc[0]
             kapasite = makine["Kapasite (kg/saat)"]
@@ -97,9 +96,34 @@ if st.button("Planı Oluştur"):
                 "Personel Durumu": eksik
             })
 
+            # --- VARDİYA TAKVİMİ ---
+            kalan_sure = sure_saat
+            tarih = start_date
+            vardiya_num = 1
+            while kalan_sure > 0:
+                calisma_saat = min(8, kalan_sure)
+                vardiya_takvimi.append({
+                    "Tarih": tarih.strftime("%d.%m.%Y"),
+                    "Vardiya": vardiya_num,
+                    "Makine": row["Makine"],
+                    "Ürün": row["Ürün"],
+                    "Personel": kisi_ihtiyac,
+                    "Planlanan Süre (saat)": round(calisma_saat, 2)
+                })
+                kalan_sure -= calisma_saat
+                vardiya_num = 1 if vardiya_num == 3 else vardiya_num + 1
+                if vardiya_num == 1:
+                    tarih += timedelta(days=1)
+
         df_sonuc = pd.DataFrame(results)
+        df_vardiya = pd.DataFrame(vardiya_takvimi)
+
         st.success("📊 Plan oluşturuldu!")
+        st.subheader("🔹 Üretim Özeti")
         st.dataframe(df_sonuc)
+
+        st.subheader("📅 Vardiya Takvimi")
+        st.dataframe(df_vardiya)
 
         toplam_mesai = df_sonuc["Toplam Üretim Süresi (saat)"].sum() - (len(df_sonuc) * 24)
         if toplam_mesai > 0:
@@ -108,4 +132,4 @@ if st.button("Planı Oluştur"):
             st.info("Mevcut vardiyalar üretim için yeterli görünüyor.")
 
 st.markdown("---")
-st.caption("💡 Geliştirilebilir: makine yerleşim planı, vardiya takvimi, AI öneri sistemi")
+st.caption("💡 Geliştirilebilir: makine yerleşim planı, vardiya takvimi görselleştirmesi, AI öneri sistemi")
