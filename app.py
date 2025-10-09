@@ -1,145 +1,88 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import math
 
-st.set_page_config(page_title="Üretim Verimlilik Dashboard v5", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Vardiya Planlayıcı", layout="wide")
 
-st.title("⚙️ Üretim Verimlilik Dashboard v5")
-st.caption("AI hazır formatlı, çalışır sürüm")
+st.title("🏭 Üretim ve Vardiya Planlama Sistemi")
 
-# ------------------------------
-# Başlangıç state
-# ------------------------------
-if "makineler" not in st.session_state:
-    st.session_state.makineler = []
-if "manuel_isler" not in st.session_state:
-    st.session_state.manuel_isler = []
+st.write("""
+Bu uygulama, haftalık üretim planını ve makine bazlı personel gereksinimlerini dikkate alarak
+en uygun vardiya planını oluşturur.
+""")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🧮 Makine Girişleri",
-    "🔧 Manuel İşler",
-    "📊 Analiz ve Grafikler",
-    "🤖 AI Tavsiyeleri"
-])
+st.header("1️⃣ Makine Bilgileri Girişi")
 
-vardiya_saat = 8
-gun_sayisi = 5
-fte_hs = 42.5
-
-# ------------------------------
-# MAKİNE GİRİŞLERİ
-# ------------------------------
-with tab1:
-    st.subheader("Makine Bilgisi Ekle")
-    with st.form("makine_formu"):
+uploaded_machines = st.file_uploader("Makine bilgilerini içeren Excel dosyasını yükleyin (isteğe bağlı)", type=["xlsx"])
+if uploaded_machines:
+    df_machines = pd.read_excel(uploaded_machines)
+else:
+    st.write("Elle giriş yapabilirsiniz:")
+    df_machines = pd.DataFrame(columns=["Makine", "Kapasite (kg/saat)", "Vardiya Başına Kişi", "Toplam Personel"])
+    with st.form("makine_form"):
         makine_adi = st.text_input("Makine Adı")
-        haftalik_plan = st.number_input("Haftalık Üretim Planı (ton)", min_value=0.0)
-        saatlik_kapasite = st.number_input("Saatlik Kapasite (ton/saat)", min_value=0.0)
-        vardiya_personel = st.number_input("Vardiya Başı Gerekli Personel", min_value=0)
-        mevcut_personel = st.number_input("Bölümde Mevcut Personel (adet)", min_value=0)
+        kapasite = st.number_input("Kapasite (kg/saat)", min_value=50, max_value=5000, step=50)
+        kisi_vardiya = st.number_input("Vardiya Başına Gerekli Kişi Sayısı", min_value=1, max_value=10)
+        toplam_personel = st.number_input("Bölümde Toplam Personel", min_value=1, max_value=50)
         ekle = st.form_submit_button("Makineyi Ekle")
-
         if ekle and makine_adi:
-            st.session_state.makineler.append({
-                "Makine": makine_adi,
-                "Haftalık Üretim Planı (ton)": haftalik_plan,
-                "Saatlik Kapasite (ton/saat)": saatlik_kapasite,
-                "Vardiya Personel": vardiya_personel,
-                "Mevcut Personel": mevcut_personel
+            df_machines.loc[len(df_machines)] = [makine_adi, kapasite, kisi_vardiya, toplam_personel]
+
+st.dataframe(df_machines)
+
+st.header("2️⃣ Üretim Planı Girişi")
+
+uploaded_plan = st.file_uploader("Üretim planı Excel yükle (isteğe bağlı)", type=["xlsx"])
+if uploaded_plan:
+    df_plan = pd.read_excel(uploaded_plan)
+else:
+    df_plan = pd.DataFrame(columns=["Ürün", "Miktar (kg)", "Makine"])
+    with st.form("uretim_form"):
+        urun = st.text_input("Ürün Adı")
+        miktar = st.number_input("Miktar (kg)", min_value=100, max_value=100000, step=100)
+        makine_sec = st.selectbox("Makine Seç", df_machines["Makine"] if not df_machines.empty else [])
+        ekle_plan = st.form_submit_button("Üretim Planına Ekle")
+        if ekle_plan and urun:
+            df_plan.loc[len(df_plan)] = [urun, miktar, makine_sec]
+
+st.dataframe(df_plan)
+
+st.header("3️⃣ Plan Hesaplama")
+
+if st.button("Planı Oluştur"):
+    if df_machines.empty or df_plan.empty:
+        st.error("Lütfen hem makine hem üretim planı verilerini giriniz.")
+    else:
+        results = []
+        for _, row in df_plan.iterrows():
+            makine = df_machines[df_machines["Makine"] == row["Makine"]].iloc[0]
+            kapasite = makine["Kapasite (kg/saat)"]
+            kisi_ihtiyac = makine["Vardiya Başına Kişi"]
+            toplam_personel = makine["Toplam Personel"]
+
+            sure_saat = row["Miktar (kg)"] / kapasite
+            vardiya_sayisi = math.ceil(sure_saat / 8)
+            toplam_kisi_ihtiyaci = kisi_ihtiyac * 3  # 3 vardiya varsayımı
+
+            eksik = "Yok" if toplam_personel >= toplam_kisi_ihtiyaci else f"{toplam_kisi_ihtiyaci - toplam_personel} kişi eksik"
+            
+            results.append({
+                "Ürün": row["Ürün"],
+                "Makine": row["Makine"],
+                "Toplam Üretim Süresi (saat)": round(sure_saat, 2),
+                "Gerekli Vardiya Sayısı": vardiya_sayisi,
+                "Personel Durumu": eksik
             })
-            st.success(f"{makine_adi} başarıyla eklendi ✅")
 
-    if st.session_state.makineler:
-        st.dataframe(pd.DataFrame(st.session_state.makineler), use_container_width=True)
-    else:
-        st.info("Henüz makine bilgisi girilmedi.")
+        df_sonuc = pd.DataFrame(results)
+        st.success("📊 Plan oluşturuldu!")
+        st.dataframe(df_sonuc)
 
-# ------------------------------
-# MANUEL İŞLER
-# ------------------------------
-with tab2:
-    st.subheader("Manuel İş Bilgisi Ekle")
-    with st.form("manuel_formu"):
-        is_adi = st.text_input("Manuel İş Adı")
-        gunluk_sure = st.number_input("Günlük Süre (saat)", min_value=0.0)
-        kisi_sayisi = st.number_input("Kişi Sayısı", min_value=0)
-        ekle_is = st.form_submit_button("İşi Ekle")
-
-        if ekle_is and is_adi:
-            st.session_state.manuel_isler.append({
-                "Manuel İş": is_adi,
-                "Günlük Süre (saat)": gunluk_sure,
-                "Kişi Sayısı": kisi_sayisi
-            })
-            st.success(f"{is_adi} eklendi ✅")
-
-    if st.session_state.manuel_isler:
-        st.dataframe(pd.DataFrame(st.session_state.manuel_isler), use_container_width=True)
-    else:
-        st.info("Henüz manuel iş eklenmedi.")
-
-# ------------------------------
-# ANALİZ VE GRAFİKLER
-# ------------------------------
-with tab3:
-    if not st.session_state.makineler:
-        st.warning("Makine verisi olmadan analiz yapılamaz.")
-    else:
-        df = pd.DataFrame(st.session_state.makineler)
-
-        # Hesaplamalar
-        df["Toplam Üretim Saati"] = df["Haftalık Üretim Planı (ton)"] / df["Saatlik Kapasite (ton/saat)"]
-        df["Mevcut Kapasite Saati"] = df["Mevcut Personel"] * vardiya_saat * 3 * gun_sayisi
-        df["Mesai Saat"] = df["Toplam Üretim Saati"] - df["Mevcut Kapasite Saati"]
-        df["Mesai Saat"] = df["Mesai Saat"].apply(lambda x: x if x>0 else 0)
-        df["Tahmini Gün"] = df["Toplam Üretim Saati"] / (df["Mevcut Personel"] * vardiya_saat * 3)
-        df["Tahmini Gün"] = df["Tahmini Gün"].apply(lambda x: math.ceil(x*10)/10)
-        df["Kötü Senaryo Gün"] = df["Toplam Üretim Saati"] / (df["Mevcut Personel"]*0.5 * vardiya_saat * 3)
-        df["Kötü Senaryo Gün"] = df["Kötü Senaryo Gün"].apply(lambda x: math.ceil(x*10)/10)
-        df["Personel Açığı"] = (df["Vardiya Personel"]*3) - df["Mevcut Personel"]
-        df["Durum"] = df["Mesai Saat"].apply(lambda x: "⚠️ Mesai Gerekebilir" if x>0 else "✅ Yeterli")
-        df["Haftalık FTE"] = ((df["Vardiya Personel"] * 3 * vardiya_saat * gun_sayisi)/fte_hs)
-
-        # Metrikler
-        toplam_fte = df["Haftalık FTE"].sum()
-        toplam_mesai = df["Mesai Saat"].sum()
-        toplam_acik = df["Personel Açığı"].sum()
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Toplam Haftalık FTE", f"{toplam_fte:.1f}")
-        col2.metric("Toplam Mesai Saati", f"{toplam_mesai:.1f}")
-        col3.metric("Toplam Personel Açığı", f"{toplam_acik}")
-
-        st.divider()
-        st.markdown("### 📊 Makine Bazlı Analiz")
-        st.dataframe(df[["Makine","Personel Açığı","Mesai Saat","Tahmini Gün","Kötü Senaryo Gün","Durum","Haftalık FTE"]], use_container_width=True)
-
-        # Grafikler
-        fig1 = px.bar(df, x="Makine", y=["Haftalık Üretim Planı (ton)", "Toplam Üretim Saati"],
-                      barmode="group", title="Plan vs Toplam Üretim", color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig1, use_container_width=True)
-
-        fig2 = px.bar(df, x="Makine", y="Mesai Saat", color="Durum",
-                      title="Mesai İhtiyacı", color_discrete_map={"⚠️ Mesai Gerekebilir": "red", "✅ Yeterli": "green"})
-        st.plotly_chart(fig2, use_container_width=True)
-
-# ------------------------------
-# AI TAVSİYE (dummy)
-# ------------------------------
-def ai_tavsiyeler(df):
-    """
-    AI entegrasyonu için hazır format.
-    Eğer 'Mesai Saat' yoksa 0 kabul ediyor.
-    """
-    tavsiyeler = []
-    if "Mesai Saat" not in df.columns:
-        df["Mesai Saat"] = 0  # varsayılan olarak 0 saat mesai
-
-    for _, row in df.iterrows():
-        if row["Mesai Saat"] > 0:
-            tavsiyeler.append(f"{row['Makine']}: Mesai gerekebilir ({row['Mesai Saat']:.1f} saat)")
+        toplam_mesai = df_sonuc["Toplam Üretim Süresi (saat)"].sum() - (len(df_sonuc) * 24)
+        if toplam_mesai > 0:
+            st.warning(f"Toplam mesai ihtiyacı yaklaşık {round(toplam_mesai, 1)} saat.")
         else:
-            tavsiyeler.append(f"{row['Makine']}: Yeterli personel mevcut.")
-    return "\n".join(tavsiyeler)
+            st.info("Mevcut vardiyalar üretim için yeterli görünüyor.")
 
+st.markdown("---")
+st.caption("💡 Geliştirilebilir: görsel makine yerleşim planı, vardiya bazlı takvim, otomatik AI öneri modülü")
