@@ -1,109 +1,110 @@
 import streamlit as st
 import pandas as pd
-import math
-from datetime import datetime, timedelta
+import numpy as np
 
-st.set_page_config(page_title="Üretim ve Vardiya Planlayıcı", layout="wide")
+st.set_page_config(page_title="Akıllı Vardiya Planlayıcı", layout="wide")
 
-st.title("🏭 Üretim ve Vardiya Planlayıcı")
+st.title("🧭 Akıllı Vardiya Planlayıcı")
 
-st.sidebar.header("🔧 Makine Bilgileri")
-makine_sayisi = st.sidebar.number_input("Makine Sayısı", 1, 20, 3)
+# -----------------------------
+# PARAMETRELER
+# -----------------------------
+vardiyalar = {
+    "12 vardiyası": {"saat_aralığı": "08:00-16:00", "süre": 7.5},
+    "35 vardiyası": {"saat_aralığı": "16:00-24:00", "süre": 7.5},
+    "51 vardiyası": {"saat_aralığı": "24:00-08:00", "süre": 7.5},
+}
 
-makineler = []
-for i in range(makine_sayisi):
-    with st.sidebar.expander(f"Makine {i+1}"):
-        ad = st.text_input(f"Makine Adı {i+1}", f"Makine-{i+1}")
-        personel = st.number_input(f"Vardiya Başına Gerekli Personel ({ad})", 1, 10, 3)
-        kapasite = st.number_input(f"Saatlik Üretim Kapasitesi (kg/saat) - {ad}", 100, 5000, 1000)
-        mevcut = st.number_input(f"Bölümdeki Toplam Personel ({ad})", 1, 50, 12)
-        makineler.append({
-            "Makine": ad,
-            "Vardiya Personel": personel,
-            "Kapasite": kapasite,
-            "Toplam Personel": mevcut
-        })
+# Günler
+gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
 
-st.divider()
-st.header("📦 Haftalık Üretim Planı")
+# Bölümler ve kişi sayıları
+bolumler = {
+    "Kaymaklı": 9,
+    "Yoğurt": 8,
+    "Ayran": 7,
+    "Süt Dolum": 6,
+    "Bakım": 5,
+}
 
-uploaded_file = st.file_uploader("Excel veya CSV yükleyebilirsin (Makine - Ürün - Miktar - Teslim Tarihi)", type=["xlsx", "csv"])
+# -----------------------------
+# AKILLI PLANLAMA
+# -----------------------------
+def plan_olustur():
+    plan = []
+    np.random.seed(42)  # sabit sonuçlar için
 
-if uploaded_file is not None:
-    if uploaded_file.name.endswith(".csv"):
-        plan_df = pd.read_csv(uploaded_file)
-    else:
-        plan_df = pd.read_excel(uploaded_file)
-else:
-    st.info("Dosya yüklemeden örnek veriyle devam edebilirsin.")
-    plan_df = pd.DataFrame({
-        "Makine": [makineler[0]["Makine"], makineler[1]["Makine"], makineler[2]["Makine"]],
-        "Ürün": ["Yoğurt", "Süt", "Ayran"],
-        "Miktar (kg)": [12000, 8000, 15000],
-        "Teslim Tarihi": [
-            (datetime.today() + timedelta(days=2)).strftime("%Y-%m-%d"),
-            (datetime.today() + timedelta(days=3)).strftime("%Y-%m-%d"),
-            (datetime.today() + timedelta(days=4)).strftime("%Y-%m-%d")
-        ]
+    for bolum, kisi_sayisi in bolumler.items():
+        for gun in gunler:
+            # 3 vardiyaya dengeli dağıtım
+            vardiya_basina = kisi_sayisi // 3
+            kalan = kisi_sayisi % 3
+            dagilim = [vardiya_basina] * 3
+            for i in range(kalan):
+                dagilim[i] += 1
+
+            # Her vardiyanın toplam çalışma saati
+            for i, (vardiya_adi, v_detay) in enumerate(vardiyalar.items()):
+                calisma_saat = dagilim[i] * v_detay["süre"]
+                fte = calisma_saat / 7.5
+                plan.append({
+                    "Bölüm": bolum,
+                    "Gün": gun,
+                    "Vardiya": vardiya_adi,
+                    "Kişi Sayısı": dagilim[i],
+                    "Toplam Çalışma Saati": calisma_saat,
+                    "FTE": round(fte, 2)
+                })
+    return pd.DataFrame(plan)
+
+df = plan_olustur()
+
+# -----------------------------
+# MESAI İHTİYACI HESAPLAMA
+# -----------------------------
+# Burada mesai ihtiyacını örnek olarak rastgele belirliyoruz,
+# istenirse üretim planına göre dinamik hale getirilebilir.
+df["Mesai (saat)"] = np.where(df["Kişi Sayısı"] < 2, 1.5, 0)
+
+# -----------------------------
+# HAFTALIK ÖZETLER
+# -----------------------------
+haftalik_ozet = (
+    df.groupby("Bölüm")
+    .agg({
+        "Toplam Çalışma Saati": "sum",
+        "Mesai (saat)": "sum",
+        "FTE": "sum"
     })
+    .reset_index()
+)
 
-st.dataframe(plan_df, use_container_width=True)
+# Kümülatif toplam
+toplam_satir = pd.DataFrame({
+    "Bölüm": ["TOPLAM"],
+    "Toplam Çalışma Saati": [haftalik_ozet["Toplam Çalışma Saati"].sum()],
+    "Mesai (saat)": [haftalik_ozet["Mesai (saat)"].sum()],
+    "FTE": [haftalik_ozet["FTE"].sum()]
+})
 
-if st.button("📅 Planı Oluştur"):
-    try:
-        vardiya_saat = 8
-        vardiya_sayisi = 3
-        plan_sonuc = []
-        tarih_baslangic = datetime.today()
+haftalik_ozet = pd.concat([haftalik_ozet, toplam_satir], ignore_index=True)
 
-        for _, row in plan_df.iterrows():
-            makine = next(m for m in makineler if m["Makine"] == row["Makine"])
-            uretim_saati = row["Miktar (kg)"] / makine["Kapasite"]
-            gerekli_vardiya_sayisi = math.ceil(uretim_saati / vardiya_saat)
-            toplam_personel_ihtiyaci = gerekli_vardiya_sayisi * makine["Vardiya Personel"]
+# -----------------------------
+# GÖRSEL ARAYÜZ
+# -----------------------------
+st.subheader("📅 Günlük Vardiya Planı")
+st.dataframe(df, use_container_width=True)
 
-            haftalik_calisma_saati = makine["Toplam Personel"] * 42.5
-            toplam_ihtiyac_saat = gerekli_vardiya_sayisi * vardiya_saat * makine["Vardiya Personel"]
+st.subheader("📊 Haftalık FTE ve Çalışma Saati Özeti")
+st.dataframe(haftalik_ozet, use_container_width=True)
 
-            mesai_ihtiyaci = max(0, toplam_ihtiyac_saat - haftalik_calisma_saati)
-            gun_sayisi = math.ceil(gerekli_vardiya_sayisi / vardiya_sayisi)
+# Grafik
+import matplotlib.pyplot as plt
 
-            plan_sonuc.append({
-                "Makine": makine["Makine"],
-                "Ürün": row["Ürün"],
-                "Toplam Üretim (kg)": row["Miktar (kg)"],
-                "Gerekli Vardiya": gerekli_vardiya_sayisi,
-                "Toplam Personel İhtiyacı": toplam_personel_ihtiyaci,
-                "Tahmini Süre (gün)": gun_sayisi,
-                "Mesai (saat)": mesai_ihtiyaci
-            })
+fig, ax = plt.subplots()
+ax.bar(haftalik_ozet["Bölüm"], haftalik_ozet["FTE"])
+ax.set_ylabel("Toplam FTE")
+ax.set_title("Haftalık FTE Dağılımı (Bölüm Bazlı)")
+st.pyplot(fig)
 
-        sonuc_df = pd.DataFrame(plan_sonuc)
-        st.success("✅ Üretim planı başarıyla oluşturuldu!")
-        st.dataframe(sonuc_df, use_container_width=True)
-
-        # ---- VARDİYA TAKVİMİ (BÖLÜM BAZLI) ----
-        st.divider()
-        st.subheader("📆 Bölüm Bazlı Vardiya Takvimi")
-
-        tarihler = pd.date_range(datetime.today(), periods=7).strftime("%Y-%m-%d")
-        vardiyalar = ["V1", "V2", "V3"]
-
-        for makine in makineler:
-            st.markdown(f"### 🧩 {makine['Makine']}")
-            personel_sayisi = makine["Toplam Personel"]
-            vardiya_kisi = makine["Vardiya Personel"]
-
-            # Personel isimleri boş bırakılmış matris
-            mat = pd.DataFrame(index=[f"Personel {i+1}" for i in range(personel_sayisi)], columns=tarihler)
-
-            for t in tarihler:
-                for i in range(personel_sayisi):
-                    vardiya_index = (i // vardiya_kisi) % 3
-                    mat.at[f"Personel {i+1}", t] = vardiyalar[vardiya_index]
-
-            # Burada isimleri sen sonradan manuel değiştirebilirsin
-            st.dataframe(mat, use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Hata oluştu: {e}")
+st.success("Planlama tamamlandı! Tüm vardiyalar dengeli, FTE değerleri hesaplandı.")
